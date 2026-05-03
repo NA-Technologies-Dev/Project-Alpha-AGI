@@ -115,8 +115,9 @@ class ALGRController(nn.Module):
             halted = False
             conf = 0.0
             entropy = 0.0
+            layer_input = x
             while True:
-                x, ssm_states[i] = layer(x, ssm_states[i], loop_idx=loops)
+                x, ssm_states[i] = layer(layer_input, ssm_states[i], loop_idx=loops)
                 pooled = x.float().mean(dim=1)
                 halt_logit = self.halt_head(pooled).squeeze(-1) / max(self.temperature, 1e-6)
                 prob = torch.sigmoid(halt_logit)
@@ -128,6 +129,8 @@ class ALGRController(nn.Module):
                 if (prob >= self.confidence_threshold).all() or loops >= self.max_loops:
                     halted = True
                     break
+                # Only the SSM state carries forward recurrently;
+                # the residual input to the layer remains fixed.
             meta_loops.append(loops)
             meta_halt.append(float(halted))
             meta_entropy.append(entropy)

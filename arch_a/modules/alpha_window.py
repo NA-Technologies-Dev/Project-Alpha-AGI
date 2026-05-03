@@ -72,24 +72,27 @@ class AlphaWindow(nn.Module):
         return ssm_state, summary_state
 
     def _ssm_scan(self, x: torch.Tensor, ssm_state: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        # vectorized fp32 scan for stability and speed
+        # Stable sequential fp32 scan
         x_fp32 = x.float()
-        h0 = ssm_state.float()
-        decay = torch.sigmoid(self.decay.float()).clamp(1e-4, 1 - 1e-4).view(1, -1)
+        bsz, seq_len, _ = x_fp32.shape
+        h = ssm_state.float()
+        decay = torch.sigmoid(self.decay.float()).clamp(1e-4, 1 - 1e-4)
+
         in_w = self.in_proj.weight.float()
         in_b = self.in_proj.bias.float() if self.in_proj.bias is not None else None
         out_w = self.state_proj.weight.float()
         out_b = self.state_proj.bias.float() if self.state_proj.bias is not None else None
 
         u = torch.tanh(torch.nn.functional.linear(x_fp32, in_w, in_b))  # [B,T,S]
-        t = torch.arange(u.size(1), device=u.device, dtype=u.dtype).unsqueeze(-1)  # [T,1]
-        log_decay = torch.log(decay)
-        powers = torch.exp(t * log_decay)  # [T,S]
-        u_scaled = u / powers.unsqueeze(0)
-        h_seq = powers.unsqueeze(0) * (h0.unsqueeze(1) + torch.cumsum(u_scaled, dim=1))
-        y = torch.nn.functional.linear(h_seq, out_w, out_b)
-        h_last = h_seq[:, -1]
-        return y, h_last
+
+        h_seq = []
+        for t in range(seq_len):
+            h = h * decay + u[:, t, :]
+            h_seq.append(h)
+
+        h_seq_tensor = torch.stack(h_seq, dim=1) # [B,T,S]
+        y = torch.nn.functional.linear(h_seq_tensor, out_w, out_b)
+        return y, h
 
     def _local_attention(self, x: torch.Tensor) -> torch.Tensor:
         bsz, seq_len, _ = x.shape

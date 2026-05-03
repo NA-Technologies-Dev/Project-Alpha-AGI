@@ -12,6 +12,7 @@ class ALGRMeta:
     halt_prob: List[float]
     entropy: List[float]
     confidence: List[float]
+    loss_penalty: Optional[torch.Tensor] = None
 
 class ALGRBlock(nn.Module):
     def __init__(
@@ -99,6 +100,7 @@ class ALGRController(nn.Module):
         if ssm_states is None:
             ssm_states = [None] * len(layers)
         meta_loops, meta_halt, meta_entropy, meta_conf = [], [], [], []
+        penalty_tensors = []
 
         for i, layer in enumerate(layers):
             dev = self.device_map[i] if self.device_map is not None else x.device
@@ -115,9 +117,8 @@ class ALGRController(nn.Module):
             halted = False
             conf = 0.0
             entropy = 0.0
-            layer_input = x
             while True:
-                x, ssm_states[i] = layer(layer_input, ssm_states[i], loop_idx=loops)
+                x, ssm_states[i] = layer(x, ssm_states[i], loop_idx=loops)
                 pooled = x.float().mean(dim=1)
                 halt_logit = self.halt_head(pooled).squeeze(-1) / max(self.temperature, 1e-6)
                 prob = torch.sigmoid(halt_logit)
@@ -125,15 +126,25 @@ class ALGRController(nn.Module):
                 p = prob.clamp(1e-6, 1 - 1e-6)
                 ent = (-p * torch.log(p) - (1 - p) * torch.log(1 - p)).mean()
                 entropy = float(ent.detach().cpu())
+
+                # Collect differentiable probability for the penalty
+                # We want to minimize the number of loops, which means we want to minimize
+                # the probability of continuing. So we penalize (1.0 - prob.mean())
+                penalty_tensors.append(1.0 - prob.mean())
+
                 loops += 1
                 if (prob >= self.confidence_threshold).all() or loops >= self.max_loops:
                     halted = True
                     break
-                # Only the SSM state carries forward recurrently;
-                # the residual input to the layer remains fixed.
             meta_loops.append(loops)
             meta_halt.append(float(halted))
             meta_entropy.append(entropy)
             meta_conf.append(conf)
 
-        return x, ssm_states, ALGRMeta(meta_loops, meta_halt, meta_entropy, meta_conf)
+        if penalty_tensors:
+            penalty_tensors = [p.to(x.device) for p in penalty_tensors]
+            total_penalty = torch.stack(penalty_tensors).sum()
+        else:
+            total_penalty = torch.tensor(0.0, device=x.device, dtype=x.dtype)
+
+        return x, ssm_states, ALGRMeta(meta_loops, meta_halt, meta_entropy, meta_conf, loss_penalty=total_penalty)

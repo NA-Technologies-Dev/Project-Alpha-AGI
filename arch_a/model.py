@@ -150,7 +150,8 @@ class ArchAModel(nn.Module):
                 ignore_index=-100,
             )
             # lightly regularize halting entropy/loops
-            loop_penalty = torch.tensor(sum(algr_meta.loops) / max(1, len(algr_meta.loops)), device=loss.device, dtype=loss.dtype)
+            # Use differentiable probabilities to allow training the halting gate
+            loop_penalty = algr_meta.loss_penalty if algr_meta.loss_penalty is not None else torch.tensor(0.0, device=loss.device, dtype=loss.dtype)
             aux_losses["loop_penalty"] = loop_penalty
             loss = loss + 1e-4 * loop_penalty
 
@@ -168,14 +169,15 @@ class ArchAModel(nn.Module):
     def generate_ar(self, input_ids: torch.Tensor, max_new_tokens: int = 32, temperature: float = 1.0):
         self.eval()
         seq = input_ids
-        ssm_states = None
         for _ in range(max_new_tokens):
-            out = self.forward(seq, ssm_states=ssm_states, training_mode="ar", return_dict=True)
+            # AlphaWindow local attention does not currently cache K/V pairs for sequence generation.
+            # We must pass the full sequence and compute from scratch, so ssm_states must be None
+            # to avoid double-counting prefix recurrence state.
+            out = self.forward(seq, ssm_states=None, training_mode="ar", return_dict=True)
             logits = out.logits[:, -1] / max(temperature, 1e-6)
             next_token = torch.multinomial(F.softmax(logits.float(), dim=-1), num_samples=1)
             next_token = next_token.to(seq.device)
             seq = torch.cat([seq, next_token], dim=1)
-            ssm_states = out.ssm_states
         return seq
 
     @torch.no_grad()

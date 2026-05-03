@@ -52,4 +52,6 @@ class PolarQuantizer:
         levels = 2 ** (self.bits - 1) - 1
         flat = (q.to(torch.float32) / levels) * scale.to(torch.float32)
         flat = flat.flatten()[: int(torch.tensor(shape).prod())]
-        return flat.view(*shape)
+        x_rot = flat.view(*shape)
+        # Apply inverse Walsh-Hadamard transform (which is identical to the forward transform)
+        return hadamard_rotate(x_rot)

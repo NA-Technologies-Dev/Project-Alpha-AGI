@@ -63,6 +63,8 @@ class ArchAModel(nn.Module):
             noise_scale=config.nadd_noise_scale,
         )
         self.device_map: Optional[List[torch.device]] = None
+        if self.config.tie_embeddings:
+            self.tie_weights()
 
     def shard_to_devices(self, devices: Sequence[str | torch.device]):
         devices = [torch.device(d) for d in devices]
@@ -184,10 +186,9 @@ class ArchAModel(nn.Module):
     def generate_nadd(self, input_ids: torch.Tensor, steps: Optional[int] = None):
         self.eval()
         hidden, _, _ = self.forward_backbone(input_ids, training=False)
-        steps = steps or self.config.nadd_steps
-        refined = hidden
-        for i in range(steps):
-            refined, logits = self.nadd_decoder(refined, anchor_state=refined.mean(dim=1))
+        # NADDDecoder internally applies `steps` passes over its refiners.
+        # Calling it repeatedly creates an unintended quadratic loop.
+        refined, logits = self.nadd_decoder(hidden, anchor_state=hidden.mean(dim=1))
         return logits
 
 class ArchAForCausalLM(ArchAModel):

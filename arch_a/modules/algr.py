@@ -108,19 +108,24 @@ class ALGRController(nn.Module):
                 x = x.to(dev, non_blocking=True)
             ssm_states[i] = self._move_optional_state(ssm_states[i], dev)
 
-            # keep halting head on the same device as the activations
-            halt_dev = x.device
-            if next(self.halt_head.parameters()).device != halt_dev:
-                self.halt_head.to(halt_dev)
-
             loops = 0
             halted = False
             conf = 0.0
             entropy = 0.0
+            halt_head_dev = next(self.halt_head.parameters()).device
+
             while True:
                 x, ssm_states[i] = layer(x, ssm_states[i], loop_idx=loops)
                 pooled = x.float().mean(dim=1)
-                halt_logit = self.halt_head(pooled).squeeze(-1) / max(self.temperature, 1e-6)
+                # Temporarily cast pooled vector to halt_head's device, avoiding parameter migration
+                if pooled.device != halt_head_dev:
+                    pooled_h = pooled.to(halt_head_dev)
+                else:
+                    pooled_h = pooled
+
+                halt_logit = self.halt_head(pooled_h).squeeze(-1) / max(self.temperature, 1e-6)
+                if halt_logit.device != x.device:
+                    halt_logit = halt_logit.to(x.device)
                 prob = torch.sigmoid(halt_logit)
                 conf = float(prob.mean().detach().cpu())
                 p = prob.clamp(1e-6, 1 - 1e-6)

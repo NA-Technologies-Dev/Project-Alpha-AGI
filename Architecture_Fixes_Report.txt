@@ -1,0 +1,102 @@
+# PROJECT ALPHA AGI: ARCHITECTURE FIXES & EVOLUTION REPORT
+
+This document serves as a comprehensive technical log of all the architectural flaws, mathematical bugs, and efficiency regressions identified and resolved during the initialization of the Arch-A (Alpha-AGI) repository.
+
+All fixes were carefully applied to ensure that the core Non-Autoregressive Diffusion Decoder (NADD) and Adaptive Logic-Gated Recurrence (ALGR) mechanics were strictly preserved, preventing the architecture from degrading into a traditional sequential transformer.
+
+---
+
+## 1. Initial Mathematical Flaw: SSM Scan NaN Overflow
+**Component:** `arch_a/modules/alpha_window.py`
+
+**The Bug:** The original implementation of the State-Space Model explicit scan computed decay powers using an unstable exponential function:
+```python
+powers = torch.exp(t * log_decay)
+u_scaled = u / powers.unsqueeze(0)
+```
+For sequences longer than ~130 tokens, `powers` evaluated exactly to `0.0` in `float32`, causing `NaN` (division by zero) during the cumulative sum, which cascaded and destroyed the entire model's reasoning capabilities.
+
+**The Fix:** We replaced the unstable explicit calculation with a stable, iterative sequential scan that safely accumulates state:
+```python
+for t in range(seq_len):
+    h = h * decay + u[:, t, :]
+```
+
+---
+
+## 2. P1 Bug: Double-Counting Prefix State in Generation
+**Component:** `arch_a/model.py` (`generate_ar`)
+
+**The Bug (Codex):** During autoregressive testing, the generation loop passed the `ssm_states` explicitly alongside the full, accumulated sequence at every step. Because the `AlphaWindow` local attention mechanism does not use KV-caching, passing the full sequence *and* the historical state resulted in double-counting previous tokens.
+
+**The Fix:** `ssm_states` was strictly set to `None` inside the AR generation loop to enforce fresh computation on the accumulated sequence.
+
+---
+
+## 3. P2 Bug: Non-Differentiable Loop Penalty
+**Component:** `arch_a/modules/algr.py` & `arch_a/model.py`
+
+**The Bug (Codex):** The `ALGRController` previously relied on detached integer loops to calculate the halting penalty:
+```python
+loop_penalty = torch.tensor(sum(algr_meta.loops) / max(1, len(algr_meta.loops)))
+```
+This was disconnected from the PyTorch computation graph. The optimizer could not follow gradients back to the `halt_head`, meaning the network would never actually learn to confidently exit loops early.
+
+**The Fix:** We implemented an Adaptive Computation Time (ACT) penalty. By capturing `1.0 - prob.mean()` at each loop and stacking them into a differentiable `total_penalty`, the model is explicitly penalized for continuing.
+
+---
+
+## 4. P1 Bug: Polar Dequantization Inverse Transform Failure
+**Component:** `arch_a/quantization/polar_quant.py`
+
+**The Bug (Codex):** The legacy `PolarQuantizer` correctly rotated inputs using the Walsh-Hadamard transform before quantization but neglected to invert the rotation upon dequantization, returning matrices in a geometrically incompatible basis.
+
+**The Fix:** We applied the inverse projection `hadamard_rotate(x_rot)` to accurately recover the weights. (Note: This component was subsequently replaced in phase 5).
+
+---
+
+## 5. Architectural Upgrade: TurboQuantizer Replacement
+**Component:** `arch_a/quantization/turbo_quant.py`
+
+**The Rationale:** To fulfill the blueprint's "Hardware Universalism" pillar, the legacy `PolarQuantizer` (which used a computationally expensive recursive Hadamard transform) was removed.
+
+**The Upgrade:** We implemented a `TurboQuantizer`. This module applies asymmetric, group-wise min/max scaling natively using standard PyTorch vectorized operations (`amax`, `amin`, `clamp`). We strictly enforced `vmax = max(vmax, 0.0)` and `vmin = min(vmin, 0.0)` to ensure absolute zero is precisely mapped, preventing saturation and gradient drift on skewed activation bounds. This implementation seamlessly compiles under `OpenXLA` and `Triton`, ensuring fast execution across CUDA, ROCm, and TPU environments.
+
+---
+
+## 6. P1 Bug: Quadratic Refinement (Double-Loop) in NADD
+**Component:** `arch_a/model.py` (`generate_nadd`)
+
+**The Bug (Codex v3):** The model accidentally looped over the diffusion steps twice. `generate_nadd` contained a `for i in range(steps):` loop, while calling `self.nadd_decoder` which *also* internally looped over `steps`. If `steps=6`, the model performed 36 iterations, causing immense latency inflation.
+
+**The Fix:** The outer loop in `generate_nadd` was removed entirely. The method now correctly defers to `self.nadd_decoder` to perform its designated diffusion sweeps.
+
+---
+
+## 7. P2 Bug: Unsafe Dynamic Module Migration in Forward Pass
+**Component:** `arch_a/modules/algr.py`
+
+**The Bug (Codex v3):** The `ALGRController` dynamically moved the `halt_head` to match the activation device inside the `forward` pass (`self.halt_head.to(halt_dev)`). This is a critical PyTorch anti-pattern that destroys optimizer states and crashes distributed paradigms (like FSDP/DDP) during multi-GPU setups.
+
+**The Fix:** We removed the parameter migration. Instead, the temporary activations (`pooled`) are cast to the `halt_head` device prior to inference, and the resulting scalar logits are cast back.
+
+---
+
+## 8. P2 Bug: Inconsistent Weight Tying
+**Component:** `arch_a/model.py`
+
+**The Bug (Codex v3):** Embedding weights were only tied to the output projection if the user explicitly called `.shard_to_devices()`. For users launching the model natively on a single GPU, the weights remained untied.
+
+**The Fix:** `self.tie_weights()` was explicitly invoked inside `ArchAForCausalLM.__init__` if `config.tie_embeddings` is True, establishing deterministic behavior.
+
+---
+
+## 9. P2 Bug: Incomplete Hardware Universalism Detection
+**Component:** `arch_a/kernels/dispatcher.py`
+
+**The Bug (Codex v3):** The `KernelDispatcher` was hardcoded to only recognize NVIDIA (CUDA) and Apple (MPS) architectures, silently forcing capable AMD ROCm and Google TPUs to fall back to unoptimized CPU paths.
+
+**The Fix:** Dispatcher logic was extended to accurately flag `torch.version.hip` (ROCm) and `torch_xla` (TPU), maintaining the promise of hardware-agnostic execution.
+
+---
+**Status:** All flaws resolved. `arch_a` test suite passing securely. Architecture verified against original NADD and ALGR blueprints.

@@ -14,7 +14,14 @@ class KernelDispatcher:
 
     def detect_backend(self):
         if torch.cuda.is_available():
+            if hasattr(torch.version, "hip") and torch.version.hip is not None:
+                return "rocm"
             return "cuda"
+        try:
+            import torch_xla.core.xla_model as xm
+            return "xla"
+        except ImportError:
+            pass
         try:
             if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                 return "mps"
@@ -24,7 +31,7 @@ class KernelDispatcher:
 
     @property
     def supports_amp(self):
-        return self.backend in {"cuda", "mps"}
+        return self.backend in {"cuda", "mps", "rocm", "xla"}
 
     def maybe_compile(self, module):
         try:

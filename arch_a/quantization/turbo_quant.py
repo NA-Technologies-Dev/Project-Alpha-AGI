@@ -28,6 +28,10 @@ class TurboQuantizer:
         vmax = groups.amax(dim=1, keepdim=True)
         vmin = groups.amin(dim=1, keepdim=True)
 
+        # Ensure 0.0 is exactly representable to prevent zero-drift
+        vmax = torch.max(vmax, torch.zeros_like(vmax))
+        vmin = torch.min(vmin, torch.zeros_like(vmin))
+
         # Prevent division by zero
         scale = ((vmax - vmin) / self.qmax).clamp_min(1e-7)
         zero_point = (-vmin / scale).round().clamp(self.qmin, self.qmax)

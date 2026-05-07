@@ -36,8 +36,17 @@ class KernelDispatcher:
     def maybe_compile(self, module):
         if not self.supports_amp:
             return module
+
+        if self.backend == "mps":
+            # MPS backend currently has poor compilation support and often hangs/fails.
+            # Bypass torch.compile to retain safe execution.
+            return module
+
         try:
-            return torch.compile(module)
+            if self.backend == "xla":
+                return torch.compile(module, backend="openxla")
+            else:
+                return torch.compile(module) # Defaults safely to inductor for CUDA/ROCm
         except Exception:
             return module
 

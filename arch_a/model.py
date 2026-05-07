@@ -89,6 +89,8 @@ class ArchAModel(nn.Module):
         return self
 
     def tie_weights(self):
+        if self.nadd_decoder.out_proj.weight.shape != self.token_embedding.weight.shape:
+            raise ValueError(f"Shape mismatch for weight tying: decoder out_proj {self.nadd_decoder.out_proj.weight.shape} != token_embedding {self.token_embedding.weight.shape}")
         self.nadd_decoder.out_proj.weight = self.token_embedding.weight
         return self
 
@@ -125,7 +127,13 @@ class ArchAModel(nn.Module):
         anchor = hidden.mean(dim=1)
 
         # AR head uses tied embedding weights when possible, otherwise the decoder projection weight.
-        ar_weight = self.token_embedding.weight if (self.config.tie_embeddings and self.device_map is None) else self.nadd_decoder.out_proj.weight
+        ar_weight = self.token_embedding.weight if self.config.tie_embeddings else self.nadd_decoder.out_proj.weight
+
+        # In multi-device sharding, embedding weights reside on devices[0] while hidden outputs
+        # are on devices[-1]. We temporarily cast the weights to match the hidden device.
+        if ar_weight.device != hidden.device:
+            ar_weight = ar_weight.to(hidden.device)
+
         ar_logits = F.linear(hidden, ar_weight)
 
         refined_hidden, nadd_logits = self.nadd_decoder(hidden, anchor_state=anchor)

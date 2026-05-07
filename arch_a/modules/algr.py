@@ -118,6 +118,9 @@ class ALGRController(nn.Module):
             bsz = x.size(0)
             active_mask = torch.ones(bsz, dtype=torch.bool, device=x.device)
 
+            curr_conf = torch.tensor(0.0, device=x.device)
+            curr_ent = torch.tensor(0.0, device=x.device)
+
             while True:
                 x_next, ssm_next = layer(x, ssm_states[i], loop_idx=loops)
 
@@ -147,10 +150,10 @@ class ALGRController(nn.Module):
                 if halt_logit.device != x.device:
                     halt_logit = halt_logit.to(x.device)
                 prob = torch.sigmoid(halt_logit)
-                conf = float(prob.mean().detach().cpu())
+
+                curr_conf = prob.mean()
                 p = prob.clamp(1e-6, 1 - 1e-6)
-                ent = (-p * torch.log(p) - (1 - p) * torch.log(1 - p)).mean()
-                entropy = float(ent.detach().cpu())
+                curr_ent = (-p * torch.log(p) - (1 - p) * torch.log(1 - p)).mean()
 
                 # Collect differentiable probability for the penalty
                 # We want to minimize the number of loops, which means we want to minimize
@@ -166,8 +169,15 @@ class ALGRController(nn.Module):
                     break
             meta_loops.append(loops)
             meta_halt.append(float(halted))
-            meta_entropy.append(entropy)
-            meta_conf.append(conf)
+            meta_entropy.append(curr_ent)
+            meta_conf.append(curr_conf)
+
+        if meta_entropy:
+            # Transfer all metrics to CPU in a single batch to avoid multiple sync points
+            all_metrics = torch.stack(meta_entropy + meta_conf).detach().cpu().tolist()
+            half = len(all_metrics) // 2
+            meta_entropy = all_metrics[:half]
+            meta_conf = all_metrics[half:]
 
         if penalty_tensors:
             penalty_tensors = [p.to(x.device) for p in penalty_tensors]

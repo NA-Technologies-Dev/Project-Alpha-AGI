@@ -17,7 +17,7 @@ class KernelDispatcher:
                 return "rocm"
             return "cuda"
         try:
-            import torch_xla.core.xla_model
+            import torch_xla
             return "xla"
         except ImportError:
             pass

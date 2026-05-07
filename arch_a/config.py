@@ -60,7 +60,15 @@ class ArchAConfig:
         )
 
     @classmethod
-    def for_500m(cls) -> "ArchAConfig":        return cls(
+    def for_50m(cls) -> "ArchAConfig":
+        return cls(
+            vocab_size=32768, d_model=512, n_layers=8, n_heads=8, n_kv_heads=4,
+            d_head=64, d_ff=2048, max_seq_len=1024
+        )
+
+    @classmethod
+    def for_500m(cls) -> "ArchAConfig":
+        return cls(
             vocab_size=32768, d_model=1024, n_layers=16, n_heads=16, n_kv_heads=4,
             d_head=64, d_ff=4096, ssm_state_dim=128, alpha_window=256, max_seq_len=2048,
             nadd_steps=6, algr_max_loops=3

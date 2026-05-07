@@ -147,3 +147,15 @@ This was disconnected from the PyTorch computation graph. The optimizer could no
 **Component:** `arch_a/kernels/dispatcher.py`
 
 **The Fix:** The `maybe_compile` routing was patched to first check if `supports_amp` is true for the environment. If it is running on a raw CPU setup without optimization, it prevents `torch.compile` from inducing harsh startup penalties when the backend is unsupported.
+
+## 17. P2 Bug: Untethered Embedded Tie Routing
+**Component:** `arch_a/model.py` (`tie_weights` and `forward`)
+
+**The Bug (Codex):** The `tie_weights` method failed to enforce dimensional guards, which could result in a silent failure if a mismatched token vocabulary array was supplied. Furthermore, `forward` was checking `self.device_map is None` to determine if it should use tied weights during inference, bypassing the explicit `tie_embeddings` boolean.
+
+**The Fix:** A `ValueError` shape guard was implemented inside `tie_weights`. The `forward` pass was corrected to honor `self.config.tie_embeddings` globally, guaranteeing identical reasoning parity across local and device-sharded environments.
+
+## 18. Feature Improvement: KernelDispatcher JIT Depth Checks
+**Component:** `arch_a/kernels/dispatcher.py` (`maybe_compile`)
+
+**The Fix:** The module's capability logic was enhanced to move beyond simple string detection into active policy mapping. The backend now bypasses `torch.compile` on `mps` entirely due to its known brittle support, and accurately forces the `backend="openxla"` flag for optimal JIT optimization when running on Google TPU (`xla`) infrastructure.

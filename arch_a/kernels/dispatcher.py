@@ -1,6 +1,5 @@
 
 from __future__ import annotations
-import os
 import torch
 
 class KernelDispatcher:
@@ -18,7 +17,7 @@ class KernelDispatcher:
                 return "rocm"
             return "cuda"
         try:
-            import torch_xla.core.xla_model as xm
+            import torch_xla.core.xla_model
             return "xla"
         except ImportError:
             pass

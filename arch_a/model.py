@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 import math
 import torch
 from torch import nn
@@ -9,7 +9,6 @@ import torch.nn.functional as F
 from .config import ArchAConfig
 from .modules import ALGRBlock, ALGRController, NADDDecoder, RMSNorm
 from .modules.alpha_window import AlphaWindowState
-from .training.mxfp8 import blockwise_mxfp8_quantize, blockwise_mxfp8_dequantize
 
 @dataclass
 class ArchAOutput:

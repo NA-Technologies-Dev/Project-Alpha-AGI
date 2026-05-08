@@ -20,18 +20,14 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        REQ_FILE=""
-        if [ -f requirements.txt ]; then
-          REQ_FILE="requirements.txt"
-        elif [ -f Requirements.txt ]; then
-          REQ_FILE="Requirements.txt"
-        elif [ -f REQUIREMENTS.txt ]; then
-          REQ_FILE="REQUIREMENTS.txt"
-        fi
+        shopt -s nocaseglob nullglob
+        req_files=(requirements.txt)
+        shopt -u nocaseglob nullglob
+        REQ_FILE="${req_files[0]}"
         if [ -n "$REQ_FILE" ]; then
           pip install -r "$REQ_FILE"
         else
-          echo "No requirements file found in $(pwd) (checked: requirements.txt, Requirements.txt, REQUIREMENTS.txt)."
+          echo "No requirements file found in $(pwd) (case-insensitive match for requirements.txt)."
           ls -la
           exit 1
         fi

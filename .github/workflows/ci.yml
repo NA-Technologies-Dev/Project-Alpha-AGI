@@ -20,14 +20,19 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        shopt -s nullglob
-        req_files=([Rr][Ee][Qq][Uu][Ii][Rr][Ee][Mm][Ee][Nn][Tt][Ss].[Tt][Xx][Tt])
-        shopt -u nullglob
-        REQ_FILE="${req_files[0]}"
-        if [ -n "$REQ_FILE" ]; then
-          pip install -r "$REQ_FILE"
+        req_files=()
+        for candidate in requirements.txt Requirements.txt REQUIREMENTS.TXT; do
+          if [ -f "$candidate" ]; then
+            req_files+=("$candidate")
+          fi
+        done
+        if [ "${#req_files[@]}" -gt 1 ]; then
+          echo "Multiple requirements files found: ${req_files[*]}. Keep only one." >&2
+          exit 1
+        elif [ "${#req_files[@]}" -eq 1 ]; then
+          pip install -r "${req_files[0]}"
         else
-          echo "No requirements file found in $(pwd) (case-insensitive match for requirements.txt)."
+          echo "No requirements file found in $(pwd) (checked: requirements.txt, Requirements.txt, REQUIREMENTS.TXT)." >&2
           ls -la
           exit 1
         fi

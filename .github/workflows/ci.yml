@@ -21,17 +21,17 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         REQ_FILE=""
-        for f in *; do
-          [ -f "$f" ] || continue
-          if [ "$(printf '%s' "$f" | tr '[:upper:]' '[:lower:]')" = "requirements.txt" ]; then
-            REQ_FILE="$f"
-            break
-          fi
-        done
+        if [ -f requirements.txt ]; then
+          REQ_FILE="requirements.txt"
+        elif [ -f Requirements.txt ]; then
+          REQ_FILE="Requirements.txt"
+        elif [ -f REQUIREMENTS.txt ]; then
+          REQ_FILE="REQUIREMENTS.txt"
+        fi
         if [ -n "$REQ_FILE" ]; then
           pip install -r "$REQ_FILE"
         else
-          echo "No requirements file found (case-insensitive match for requirements.txt)."
+          echo "No requirements file found in $(pwd) (checked: requirements.txt, Requirements.txt, REQUIREMENTS.txt)."
           ls -la
           exit 1
         fi

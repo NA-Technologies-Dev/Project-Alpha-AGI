@@ -59,6 +59,46 @@ class ArchAConfig:
             nadd_steps=2, algr_max_loops=1
         )
 
+        @classmethod
+    def for_20m(cls) -> "ArchAConfig":
+        return cls(
+            vocab_size=50257,          # GPT2 tokenizer vocab
+            d_model=384,
+            n_layers=6,
+            n_heads=6,
+            n_kv_heads=2,
+            d_head=64,
+            d_ff=1536,
+            ssm_state_dim=64,
+            alpha_window=128,
+            max_seq_len=512,
+
+            # Stability-focused settings
+            dropout=0.1,
+            attn_dropout=0.1,
+
+            # Safer ALGR settings
+            algr_max_loops=2,
+            algr_confidence_threshold=0.88,
+            algr_temperature=1.0,
+
+            # Safer NADD settings
+            nadd_steps=3,
+            nadd_hidden_mult=2,
+            nadd_noise_scale=0.10,
+
+            # Memory/runtime safety
+            use_checkpointing=True,
+            use_fp32_residuals=True,
+            use_structured_memory=False,
+
+            # Optimizer helpers
+            galore_rank=4,
+            residual_summary_dim=64,
+
+            model_name="arch_a_20m"
+        )
+    
     @classmethod
     def for_50m(cls) -> "ArchAConfig":
         return cls(

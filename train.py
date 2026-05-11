@@ -59,8 +59,15 @@ def main():
     model = ArchAForCausalLM(arch_config)
     model.to(device)
 
-    if train_config.compile and torch.cuda.is_available():
-        model = torch.compile(model)
+    if (
+    train_config.compile
+    and not args.no_compile
+    and torch.cuda.is_available()
+):
+    print("Compiling model with torch.compile...")
+    model = torch.compile(model)
+else:
+    print("torch.compile DISABLED")
 
     # 3. Optimizers & Scalers
     optimizer = torch.optim.AdamW(

@@ -38,6 +38,8 @@ def eval_structured_output(model, tokenizer, device, num_prompts=5):
 
     # Force deterministic decoding
     old_state = torch.get_rng_state()
+    if torch.cuda.is_available():
+        old_cuda_state = torch.cuda.get_rng_state()
     torch.manual_seed(42)
 
     with torch.no_grad():
@@ -63,6 +65,8 @@ def eval_structured_output(model, tokenizer, device, num_prompts=5):
             results.append({"prompt": prompt, "structured_text": text, "valid_json": valid_json})
 
     torch.set_rng_state(old_state)
+    if torch.cuda.is_available():
+        torch.cuda.set_rng_state(old_cuda_state)
 
     validity_rate = valid_count / max(1, len(prompts))
     return {"validity_rate": validity_rate, "results": results}
